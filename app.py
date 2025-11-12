@@ -24,13 +24,15 @@ CORS(app, resources={
     r"/chat*": {
         "origins": [
             "http://localhost:5173",
-            "https://proy2-chatbot-legal-frontend.onrender.com"
+            "https://proy2-chatbot-legal-frontend.onrender.com",
+            "https://honeydew-lark-508906.hostingersite.com"
         ]
     },
     r"/chats*": {
         "origins": [
             "http://localhost:5173",
-            "https://proy2-chatbot-legal-frontend.onrender.com"
+            "https://proy2-chatbot-legal-frontend.onrender.com",
+            "https://honeydew-lark-508906.hostingersite.com"
         ]
     },
 })
