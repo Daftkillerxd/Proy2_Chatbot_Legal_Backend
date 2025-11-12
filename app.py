@@ -6,7 +6,12 @@ import os
 from dotenv import load_dotenv
 
 from usuarios_service import obtener_o_crear_usuario
-from chats_service import obtener_chats_por_usuario, crear_chat, eliminar_chat
+from chats_service import (
+    obtener_chats_por_usuario,
+    crear_chat,
+    eliminar_chat,
+    actualizar_nombre_chat,
+)
 from mensajes_service import obtener_mensajes_de_chat, crear_mensaje
 
 load_dotenv()
@@ -76,6 +81,19 @@ def listar_mensajes(chat_id):
 def borrar_chat(chat_id):
     eliminar_chat(chat_id)
     return jsonify({"ok": True})
+
+
+# 3.b EDITAR NOMBRE DE CHAT
+@app.route("/chats/<chat_id>", methods=["PATCH"])
+def renombrar_chat(chat_id):
+    data = request.json or {}
+    nuevo_nombre = data.get("nombre_chat")
+
+    if not nuevo_nombre:
+        return jsonify({"error": "nombre_chat es requerido"}), 400
+
+    chat_actualizado = actualizar_nombre_chat(chat_id, nuevo_nombre)
+    return jsonify({"chat": chat_actualizado})
 
 
 # 4. CREAR NUEVO CHAT (NOMBRE + USER)

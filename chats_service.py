@@ -44,3 +44,16 @@ def eliminar_chat(chat_id: str) -> None:
     """
     supabase.table("messages").delete().eq("chat_id", chat_id).execute()
     supabase.table("chats").delete().eq("id", chat_id).execute()
+
+def actualizar_nombre_chat(chat_id: str, nuevo_nombre: str) -> Dict:
+    """
+    Actualiza el nombre de un chat y devuelve el chat actualizado.
+    """
+    res = (
+        supabase
+        .table("chats")
+        .update({"nombre_chat": nuevo_nombre})
+        .eq("id", chat_id)
+        .execute()
+    )
+    return res.data[0]
