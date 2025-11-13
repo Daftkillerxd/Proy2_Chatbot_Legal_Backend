@@ -21,7 +21,7 @@ load_dotenv()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 USE_OPENAI = os.getenv("USE_OPENAI", "true").lower() == "true"   # pon false para aislar OpenAI
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")         # modelo por ENV
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5-mini")         # modelo por ENV
 
 # Dominios permitidos para el front
 ALLOWED_ORIGINS = {
