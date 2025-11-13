@@ -6,7 +6,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from openai import OpenAI
 
-# --- Servicios existentes (no los toques) ---
+# --- Servicios locales existentes (no tocar) ---
 from usuarios_service import obtener_o_crear_usuario
 from chats_service import (
     obtener_chats_por_usuario,
@@ -16,13 +16,14 @@ from chats_service import (
 )
 from mensajes_service import obtener_mensajes_de_chat, crear_mensaje
 
-# ================== Config base ==================
+# ================== Configuración ==================
 load_dotenv()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-OPENAI_MODEL   = os.getenv("OPENAI_MODEL", "gpt-5-mini")  # usamos gpt-5-mini
+OPENAI_MODEL   = os.getenv("OPENAI_MODEL", "gpt-5-mini")   # usamos GPT-5 mini
 USE_OPENAI     = os.getenv("USE_OPENAI", "true").lower() == "true"
 
+# Dominios que pueden llamar a tu API
 ALLOWED_ORIGINS = {
     "http://localhost:5173",
     "https://proy2-chatbot-legal-frontend.onrender.com",
@@ -30,12 +31,14 @@ ALLOWED_ORIGINS = {
     "https://www.honeydew-lark-508906.hostingersite.com",
 }
 
+# Cliente OpenAI (solo si está habilitado)
 client = OpenAI(api_key=OPENAI_API_KEY) if (OPENAI_API_KEY and USE_OPENAI) else None
 
+# ================== Flask & CORS ==================
 app = Flask(__name__)
 app.config["JSON_SORT_KEYS"] = False
 
-# CORS normal (para respuestas 2xx)
+# CORS “normal” para respuestas 2xx
 CORS(
     app,
     resources={r"/chats*": {"origins": list(ALLOWED_ORIGINS)}},
@@ -47,7 +50,7 @@ CORS(
 def _origin_allowed(origin: str | None) -> bool:
     return bool(origin) and origin in ALLOWED_ORIGINS
 
-# CORS también en errores 4xx/5xx (evita que el navegador oculte el error)
+# Asegura CORS también en errores 4xx/5xx
 @app.after_request
 def add_cors_headers(resp):
     origin = request.headers.get("Origin")
@@ -70,17 +73,18 @@ def method_not_allowed(_e):
 
 @app.errorhandler(Exception)
 def unhandled(e):
+    # Log visible en Render > Logs
     print("Unhandled exception:", repr(e))
     return jsonify({
         "error": "server_error",
         "detail": str(e)[:500],
-        "hint": "Revisa Live tail en Render."
+        "hint": "Revisa Logs (Live tail) en Render."
     }), 500
 
-# ================== Prompt ==================
+# ================== Prompt del sistema ==================
 system_prompt = """Eres un asistente jurídico informativo para Perú.
 - Explica en español claro.
-- Cita normas con artículo y nombre (ej.: Constitución, art. 2).
+- Cita normas con artículo y nombre (p. ej., Constitución, art. 2).
 - Advierte: "no es asesoría legal, es una orientación".
 - Si piden abrir o reabrir carpeta fiscal, guía con pasos y requisitos según el CPP y lineamientos del MP (sin inventar artículos).
 Restricciones:
@@ -89,12 +93,12 @@ Salida:
 - Respuesta breve, estilo chat.
 """
 
-# ================== Utils & preflight ==================
+# ================== Utils / Preflight ==================
 @app.route("/ping", methods=["GET"])
 def ping():
     return jsonify({"ok": True})
 
-# Algunos proxies exigen OPTIONS dedicado
+# Algunos proxys exigen OPTIONS dedicado
 @app.route("/chats/<chat_id>/messages", methods=["OPTIONS"])
 def preflight_messages(chat_id):
     return ("", 204)
@@ -149,7 +153,7 @@ def crear_nuevo_chat():
     chat = crear_chat(user_id=user_id, nombre_chat=nombre_chat, contexto=contexto)
     return jsonify({"chat": chat, "user_id": user_id})
 
-# 5) Enviar mensaje (GPT-5 vía Responses API)
+# 5) Enviar mensaje (OpenAI GPT-5 mini vía Responses API, salida forzada a texto)
 @app.route("/chats/<chat_id>/messages", methods=["POST"])
 def post_mensaje(chat_id):
     data = request.get_json(silent=True) or {}
@@ -157,7 +161,7 @@ def post_mensaje(chat_id):
     if not user_msg:
         return jsonify({"error": "message es requerido"}), 400
 
-    # guarda el mensaje del usuario
+    # Guarda mensaje del usuario
     crear_mensaje(chat_id=chat_id, contenido=user_msg, sender="user")
 
     # Modo demo si no hay OpenAI
@@ -167,43 +171,33 @@ def post_mensaje(chat_id):
         return jsonify({"respuesta": respuesta})
 
     try:
+        # IMPORTANTE: En Responses API el contenido va en bloques type:"text"
         res = client.responses.create(
-            model=OPENAI_MODEL,             # "gpt-5-mini"
+            model=OPENAI_MODEL,                 # "gpt-5-mini"
+            modalities=["text"],                # fuerza modalidad de salida
+            response_format={"type": "text"},   # y formatea como texto
             max_output_tokens=400,
             input=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user",   "content": user_msg},
+                {
+                    "role": "system",
+                    "content": [
+                        {"type": "text", "text": system_prompt}
+                    ]
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": user_msg}
+                    ]
+                }
             ],
         )
 
-        # --- extracción robusta del texto ---
-        respuesta = None
-
-        # 1) helper moderno
+        # Con response_format=text, el SDK expone .output_text
         respuesta = getattr(res, "output_text", None)
 
-        # 2) parse helper (algunas versiones lo traen)
         if not respuesta:
-            try:
-                parsed = client.responses.parse(res)
-                respuesta = getattr(parsed, "output_text", None)
-            except Exception:
-                pass
-
-        # 3) recorrido manual seguro
-        if not respuesta:
-            out = getattr(res, "output", None) or []
-            for item in out:
-                for c in getattr(item, "content", []) or []:
-                    if getattr(c, "type", "") in ("text", "output_text"):
-                        respuesta = getattr(c, "text", None) or getattr(c, "output_text", None)
-                        if respuesta:
-                            break
-                if respuesta:
-                    break
-
-        if not respuesta:
-            # Loguea el crudo para inspección en Render > Logs
+            # Log de depuración si algo raro ocurre (visible en Render Logs)
             try:
                 print("Responses raw:", res.model_dump())
             except Exception:
@@ -215,9 +209,10 @@ def post_mensaje(chat_id):
         return jsonify({
             "error": "openai_error",
             "detail": str(oe),
-            "hint": "Verifica acceso al modelo gpt-5-mini y versión del SDK (Responses API)."
+            "hint": "Verifica OPENAI_API_KEY, acceso al modelo gpt-5-mini y la versión del SDK (Responses API)."
         }), 502
 
+    # Guarda respuesta del asistente
     crear_mensaje(chat_id=chat_id, contenido=respuesta, sender="assistant")
     return jsonify({"respuesta": respuesta})
 
