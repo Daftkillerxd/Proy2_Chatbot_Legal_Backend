@@ -160,40 +160,56 @@ def post_mensaje(chat_id):
     # guarda el mensaje del usuario
     crear_mensaje(chat_id=chat_id, contenido=user_msg, sender="user")
 
-    # Modo demo si no hay OpenAI (útil para aislar errores de CORS/backend)
+    # Modo demo si no hay OpenAI
     if not (USE_OPENAI and client):
         respuesta = f"(demo) Recibí tu consulta: {user_msg}"
         crear_mensaje(chat_id=chat_id, contenido=respuesta, sender="assistant")
         return jsonify({"respuesta": respuesta})
 
-    # --- Llamada correcta a gpt-5-mini: Responses API ---
     try:
         res = client.responses.create(
-            model=OPENAI_MODEL,        # "gpt-5-mini"
-            max_output_tokens=400,     # ajusta si tu free tier de Render mata por memoria
+            model=OPENAI_MODEL,             # "gpt-5-mini"
+            max_output_tokens=400,
             input=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user",   "content": user_msg},
             ],
         )
 
-        # Preferencia: helper output_text (si el SDK lo trae)
+        # --- extracción robusta del texto ---
+        respuesta = None
+
+        # 1) helper moderno
         respuesta = getattr(res, "output_text", None)
 
-        # Fallback manual por si el helper no está
+        # 2) parse helper (algunas versiones lo traen)
         if not respuesta:
-            for item in getattr(res, "output", []) or []:
+            try:
+                parsed = client.responses.parse(res)
+                respuesta = getattr(parsed, "output_text", None)
+            except Exception:
+                pass
+
+        # 3) recorrido manual seguro
+        if not respuesta:
+            out = getattr(res, "output", None) or []
+            for item in out:
                 for c in getattr(item, "content", []) or []:
-                    # distintos SDKs usan "text" u "output_text"
                     if getattr(c, "type", "") in ("text", "output_text"):
-                        respuesta = getattr(c, "text", None)
+                        respuesta = getattr(c, "text", None) or getattr(c, "output_text", None)
                         if respuesta:
                             break
                 if respuesta:
                     break
 
         if not respuesta:
-            respuesta = "No pude generar respuesta en este momento."
+            # Loguea el crudo para inspección en Render > Logs
+            try:
+                print("Responses raw:", res.model_dump())
+            except Exception:
+                print("Responses raw (repr):", repr(res))
+            respuesta = "No pude generar respuesta por ahora. Inténtalo de nuevo en unos segundos."
+
     except Exception as oe:
         print("OpenAI error:", oe)
         return jsonify({
@@ -202,7 +218,6 @@ def post_mensaje(chat_id):
             "hint": "Verifica acceso al modelo gpt-5-mini y versión del SDK (Responses API)."
         }), 502
 
-    # guarda respuesta y devuelve
     crear_mensaje(chat_id=chat_id, contenido=respuesta, sender="assistant")
     return jsonify({"respuesta": respuesta})
 
