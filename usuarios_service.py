@@ -1,30 +1,41 @@
 # usuarios_service.py
-from typing import Optional
-from supabase import Client
 from conexion import obtener_cliente
 
-supabase: Client = obtener_cliente()
+supabase = obtener_cliente()
 
-
-def obtener_o_crear_usuario(nombre: str, email: str, user_id: Optional[str] = None) -> str:
+def obtener_o_crear_usuario(nombre: str | None, email: str | None, user_id: str | None):
     """
-    Si viene user_id lo devuelve tal cual.
-    Si no viene, crea un usuario nuevo con nombre y email y devuelve su id.
+    Devuelve el id del usuario. Si existe por email, lo reutiliza.
+    Si no existe, lo crea. user_id siempre tiene prioridad.
     """
+    # 1) Si ya te pasan el id, úsalo
     if user_id:
         return user_id
 
-    if not email:
-        # aquí puedes lanzar error o poner un email genérico
-        email = "anon@chatbotlegal.local"
+    # 2) Si viene email, hacemos UPSERT por email (evita el duplicate key)
+    if email:
+        # Nota: el supabase-py soporta on_conflict="email"
+        res = (
+            supabase
+            .table("users")
+            .upsert(
+                {"email": email, "nombre": (nombre or "Invitado")},
+                on_conflict="email"
+            )
+            .select("id")
+            .single()
+            .execute()
+        )
+        return res.data["id"]
 
+    # 3) Si no viene email, creamos un usuario sin email (NULL no rompe el UNIQUE)
     res = (
         supabase
         .table("users")
-        .insert({
-            "nombre": nombre,
-            "email": email
-        })
+        .insert({"nombre": (nombre or "Invitado")})
+        .select("id")
+        .single()
         .execute()
     )
-    return res.data[0]["id"]
+    return res.data["id"]
+
