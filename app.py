@@ -142,7 +142,7 @@ def crear_nuevo_chat():
     chat = crear_chat(user_id=user_id, nombre_chat=nombre_chat, contexto=contexto)
     return jsonify({"chat": chat, "user_id": user_id})
 
-# ===== Enviar mensaje: Responses API sin 'modalities' + fallback a chat.completions =====
+# ===== Enviar mensaje (gpt-5-mini sin parámetros no soportados) =====
 @app.route("/chats/<chat_id>/messages", methods=["POST"])
 def post_mensaje(chat_id):
     data = request.get_json(silent=True) or {}
@@ -150,62 +150,36 @@ def post_mensaje(chat_id):
     if not user_msg:
         return jsonify({"error": "message es requerido"}), 400
 
+    # Guarda mensaje de usuario
     crear_mensaje(chat_id=chat_id, contenido=user_msg, sender="user")
 
+    # Modo demo si no hay OpenAI activo
     if not (USE_OPENAI and client):
         respuesta = f"(demo) Recibí tu consulta: {user_msg}"
         crear_mensaje(chat_id=chat_id, contenido=respuesta, sender="assistant")
         return jsonify({"respuesta": respuesta})
 
-    # 1) Intento con Responses API (sin 'modalities')
-    try:
-        res = client.responses.create(
-            model=OPENAI_MODEL,
-            response_format={"type": "text"},   # forzar texto si el SDK lo soporta
-            max_output_tokens=400,
-            input=[
-                {"role": "system", "content": [{"type": "text", "text": system_prompt}]},
-                {"role": "user",   "content": [{"type": "text", "text": user_msg}]},
-            ],
-        )
-        respuesta = getattr(res, "output_text", None)
-        if not respuesta:
-            # intenta extraer manualmente
-            try:
-                print("Responses raw:", res.model_dump())
-            except Exception:
-                print("Responses raw (repr):", repr(res))
-            # fallback local de cortesía (no error visible al usuario final)
-            respuesta = "No pude generar respuesta por ahora. Inténtalo de nuevo en unos segundos."
-        crear_mensaje(chat_id=chat_id, contenido=respuesta, sender="assistant")
-        return jsonify({"respuesta": respuesta})
-
-    except TypeError as te:
-        # típico cuando el SDK no soporta responses params -> usar chat.completions
-        print("Responses TypeError; usando chat.completions:", te)
-    except Exception as oe:
-        # si falla por otra razón, intentamos también completions
-        print("Responses error; probando chat.completions:", oe)
-
-    # 2) Fallback robusto a Chat Completions
+    # Intento principal: Chat Completions (sin temperature/top_p/etc.)
     try:
         comp = client.chat.completions.create(
-            model=OPENAI_MODEL,
+            model=OPENAI_MODEL,  # gpt-5-mini
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user",   "content": user_msg},
-            ],
-            temperature=0.2,
+            ]
+            # Importante: NO enviar temperature/top_p/frequency_penalty con gpt-5-mini
         )
         respuesta = comp.choices[0].message.content
         crear_mensaje(chat_id=chat_id, contenido=respuesta, sender="assistant")
         return jsonify({"respuesta": respuesta})
+
     except Exception as ce:
         print("OpenAI completions error:", ce)
+        # Respuesta amable al usuario + detalle para debugging
         return jsonify({
             "error": "openai_error",
             "detail": str(ce),
-            "hint": "Actualiza el paquete openai en requirements.txt o verifica acceso al modelo gpt-5-mini."
+            "hint": "No envíes parámetros de sampling con gpt-5-mini o verifica tu acceso al modelo."
         }), 502
 
 # ================== Main ==================
