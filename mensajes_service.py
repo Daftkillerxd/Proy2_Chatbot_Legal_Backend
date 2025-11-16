@@ -6,7 +6,7 @@ from conexion import obtener_cliente
 supabase: Client = obtener_cliente()
 
 
-def obtener_mensajes_de_chat(chat_id: str, limit: int = 200) -> List[Dict]:
+def obtener_mensajes_de_chat(chat_id: str, limit: int = 5) -> List[Dict]:
     """
     Devuelve los mensajes de un chat ordenados del más antiguo al más nuevo.
     """
